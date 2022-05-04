@@ -5,6 +5,8 @@ set -e
 SILICON=0
 GOOGLE_CLOUD_SDK_CLI_BINARY=`which gcloud`
 GOOGLE_CLOUD_PROJECT=moonstop
+MOONSTOP_BACKEND_SERVICE="moonstop-backend"
+
 
 if [[ $OSTYPE != *darwin* ]]; then
     echo ERROR: deploy.sh only works on Mac OS
@@ -38,7 +40,7 @@ function install_google_cloud_sdk_cli {
     tar -xf ${TARGET} -C ${HOME}/
     local PATH_CONFIG_LINE="export PATH=\$PATH:${INSTALL_DIR}/bin"
     GOOGLE_CLOUD_SDK_CLI_BINARY=${INSTALL_DIR}/bin/gcloud
-    BASHRC=${HOME}/.bashrc
+    local BASHRC=${HOME}/.bashrc
     touch ${BASHRC}
     [[ `cat ${BASHRC} | grep "${PATH_CONFIG_LINE}"` ]] || echo ${PATH_CONFIG_LINE} >> ${BASHRC}
     source ${BASHRC}
@@ -55,12 +57,11 @@ function find_or_install_google_cloud_sdk_cli {
 }
 
 function configure_google_cloud_sdk_cli {
-    CONFIG=moonstop
-    ACCOUNT=moonstop.creators@gmail.com
-    CONFIGS=`gcloud config configurations list --format=json | jq -r .[].name`
-    [[ $CONFIGS == *${CONFIG}* ]] || gcloud config configurations create $CONFIG
-    gcloud config configurations activate $CONFIG
-    ACCOUNTS=`gcloud auth list --format=json | jq -r '.[] | "\(.account):\(.status)"'`
+    local ACCOUNT=moonstop.creators@gmail.com
+    local CONFIGS=`gcloud config configurations list --format=json | jq -r .[].name`
+    [[ $CONFIGS == *${GOOGLE_CLOUD_PROJECT}* ]] || gcloud config configurations create ${GOOGLE_CLOUD_PROJECT}
+    gcloud config configurations activate ${GOOGLE_CLOUD_PROJECT}
+    local ACCOUNTS=`gcloud auth list --format=json | jq -r '.[] | "\(.account):\(.status)"'`
     [[ $ACCOUNTS == *${ACCOUNT}:ACTIVE* ]] || gcloud auth login
     gcloud config set core/project ${GOOGLE_CLOUD_PROJECT}
     gcloud config set run/region us-central1
@@ -76,23 +77,22 @@ function init {
 }
 
 function deploy_backend {
-    local SRC_DIR=${THIS_DIR}/backend
-    local SERVICE="moonstop-backend"
-    local IMAGE="gcr.io/${GOOGLE_CLOUD_PROJECT}/${SERVICE}"
-    local STAGING_DIR="${THIS_DIR}"/.${SERVICE}
+    local SOURCE=${THIS_DIR}/backend
+    local IMAGE="gcr.io/${GOOGLE_CLOUD_PROJECT}/${MOONSTOP_BACKEND_SERVICE}"
+    local STAGING_DIR=${THIS_DIR}/.${MOONSTOP_BACKEND_SERVICE}
     rm -rf ${STAGING_DIR} && mkdir ${STAGING_DIR}
-    rsync -r --exclude-from ${SRC_DIR}/.cloudrunignore ${SRC_DIR}/ ${STAGING_DIR}/
+    rsync -r --exclude-from ${SOURCE}/.cloudrunignore ${SOURCE}/ ${STAGING_DIR}/
     cd ${STAGING_DIR}
     gcloud builds submit --tag ${IMAGE}
-    gcloud run deploy ${SERVICE} --image ${IMAGE} --port $8080 --allow-unauthenticated
-    gcloud run services describe ${SERVICE} --format 'value(status.url)'
+    gcloud run deploy ${MOONSTOP_BACKEND_SERVICE} --image ${IMAGE} --port $8080 --allow-unauthenticated
+    cd ${THIS_DIR}
 }
 
 function main {
     init
-    BACKEND_URL=`deploy_backend`
-    echo MoonStop Backend URL: ${BACKEND_URL}
+    deploy_backend
+    MOONSTOP_BACKEND_URL=`gcloud run services describe ${MOONSTOP_BACKEND_SERVICE} --format 'value(status.url)'`
+    echo MoonStop Backend URL: ${MOONSTOP_BACKEND_URL}
 }
 
 main
-
